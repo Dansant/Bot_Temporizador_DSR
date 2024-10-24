@@ -16,8 +16,10 @@ custom_times = {  # Dicionário para armazenar os horários customizados dos tim
     "pumpkinmon1": datetime.datetime.now(tz=pytz.timezone('America/Sao_Paulo')).replace(hour=7, minute=30, second=0, microsecond=0),
     "pumpkinmon2": datetime.datetime.now(tz=pytz.timezone('America/Sao_Paulo')).replace(hour=9, minute=30, second=0, microsecond=0),
     "pumpkinmon3": datetime.datetime.now(tz=pytz.timezone('America/Sao_Paulo')).replace(hour=11, minute=0, second=0, microsecond=0),
-    "gotsumon": datetime.datetime.now(tz=pytz.timezone('America/Sao_Paulo')).replace(hour=13, minute=0, second=0, microsecond=0)
+    "gotsumon": datetime.datetime.now(tz=pytz.timezone('America/Sao_Paulo')).replace(hour=13, minute=0, second=0, microsecond=0),
+    "seraphmon": datetime.datetime.now(tz=pytz.timezone('America/Sao_Paulo')).replace(hour=12, minute=0, second=0, microsecond=0) + datetime.timedelta((5 - datetime.datetime.now(tz=pytz.timezone('America/Sao_Paulo')).weekday()) % 7)  # Sábados às 12:00
 }
+chain_timers = {}  # Dicionário para armazenar os temporizadores em cadeia
 
 # Definindo o fuso horário de Brasília
 brasilia_tz = pytz.timezone('America/Sao_Paulo')
@@ -52,6 +54,7 @@ async def on_ready():
             "/timerchannel - Permite selecionar o canal de texto para enviar as mensagens de notificação.\n"
             "/timerremain - Exibe quanto tempo falta para o próximo disparo do bot.\n"
             "/timerset - Permite ajustar o horário de um temporizador específico.\n"
+            "/timerchain - Agende um temporizador que se repete a cada dia com uma hora a mais.\n"
             "/timer - Lista todos os comandos disponíveis do bot."
         )
         await text_channel.send(f"Lista de comandos:\n{commands_list}")
@@ -79,6 +82,13 @@ async def check_timer():
         await trigger_event("kuwagamon")
         next_7am_time += datetime.timedelta(hours=24)
 
+    # Verificar os timers em cadeia
+    for chain_name, chain_datetime in list(chain_timers.items()):
+        if now >= chain_datetime and now.hour == chain_datetime.hour and now.minute == chain_datetime.minute:
+            await trigger_event(chain_name)
+            # Atualizar o próximo disparo com uma hora a mais no próximo dia
+            chain_timers[chain_name] = chain_datetime + datetime.timedelta(days=1, hours=1)
+
 async def trigger_event(message):
     # Envia mensagem em um canal de texto selecionado
     if selected_text_channel:
@@ -98,7 +108,8 @@ async def timer_start(interaction: discord.Interaction):
         "pumpkinmon1": datetime.datetime.now(tz=brasilia_tz).replace(hour=7, minute=30, second=0, microsecond=0) + datetime.timedelta(days=1 if datetime.datetime.now(tz=brasilia_tz).hour >= 7 else 0),
         "pumpkinmon2": datetime.datetime.now(tz=brasilia_tz).replace(hour=9, minute=30, second=0, microsecond=0) + datetime.timedelta(days=1 if datetime.datetime.now(tz=brasilia_tz).hour >= 9 else 0),
         "pumpkinmon3": datetime.datetime.now(tz=brasilia_tz).replace(hour=11, minute=0, second=0, microsecond=0) + datetime.timedelta(days=1 if datetime.datetime.now(tz=brasilia_tz).hour >= 11 else 0),
-        "gotsumon": datetime.datetime.now(tz=brasilia_tz).replace(hour=13, minute=0, second=0, microsecond=0) + datetime.timedelta(days=1 if datetime.datetime.now(tz=brasilia_tz).hour >= 13 else 0)
+        "gotsumon": datetime.datetime.now(tz=brasilia_tz).replace(hour=13, minute=0, second=0, microsecond=0) + datetime.timedelta(days=1 if datetime.datetime.now(tz=brasilia_tz).hour >= 13 else 0),
+        "seraphmon": datetime.datetime.now(tz=brasilia_tz).replace(hour=12, minute=0, second=0, microsecond=0) + datetime.timedelta((5 - datetime.datetime.now(tz=brasilia_tz).weekday()) % 7)  # Sábados às 12:00
     }
 
     await interaction.response.send_message("Temporizador iniciado com horários padrão.", ephemeral=True)
@@ -161,6 +172,33 @@ async def timerset(interaction: discord.Interaction, timer_name: str, new_dateti
             "Formato de data/hora inválido. Use o formato: dd/mm/yyyy hh:mm",
             ephemeral=True)
 
+# Define o comando de barra /timerchain
+@bot.tree.command(name="timerchain", description="Agende um temporizador que se repete a cada dia com uma hora a mais.")
+async def timer_chain(interaction: discord.Interaction, chain_name: str, start_datetime: str):
+    global chain_timers
+
+    try:
+        # Converte a string de data e hora para um objeto datetime em fuso horário de Brasília
+        chain_time = datetime.datetime.strptime(start_datetime, "%d/%m/%Y %H:%M")
+        chain_time = brasilia_tz.localize(chain_time)
+
+        # Verifica se o horário configurado é no futuro
+        if chain_time <= datetime.datetime.now(tz=brasilia_tz):
+            await interaction.response.send_message(
+                "A data e hora devem ser no futuro.",
+                ephemeral=True)
+            return
+
+        # Armazena o novo temporizador em cadeia
+        chain_timers[chain_name] = chain_time
+        await interaction.response.send_message(
+            f"Timer em cadeia '{chain_name}' agendado para {chain_time.strftime('%d/%m/%Y %H:%M')} (horário de Brasília).",
+            ephemeral=True)
+    except ValueError:
+        await interaction.response.send_message(
+            "Formato de data/hora inválido. Use o formato: dd/mm/yyyy hh:mm",
+            ephemeral=True)
+
 # Define o comando de barra /timer
 @bot.tree.command(name="timer", description="Lista os comandos disponíveis do bot.")
 async def timer(interaction: discord.Interaction):
@@ -170,6 +208,7 @@ async def timer(interaction: discord.Interaction):
         "/timerchannel - Permite selecionar o canal de texto para enviar as mensagens de notificação.\n"
         "/timerremain - Exibe quanto tempo falta para o próximo disparo do bot.\n"
         "/timerset - Permite ajustar o horário de um temporizador específico.\n"
+        "/timerchain - Agende um temporizador que se repete a cada dia com uma hora a mais.\n"
         "/timer - Lista todos os comandos disponíveis do bot."
     )
     await interaction.response.send_message(f"Lista de comandos:\n{commands_list}", ephemeral=True)
@@ -198,6 +237,18 @@ async def timer_remain(interaction: discord.Interaction):
             seconds = seconds % 60
             remaining_times.append(
                 f"{timer_name}; {timer_datetime.strftime('%d/%m/%Y %H:%M:%S')}; {days} dias, {hours} horas, {minutes} minutos, {seconds} segundos"
+            )
+
+    # Temporizadores em cadeia
+    for chain_name, chain_datetime in chain_timers.items():
+        if now < chain_datetime:
+            remaining = chain_datetime - now
+            days, seconds = remaining.days, remaining.seconds
+            hours = seconds // 3600
+            minutes = (seconds % 3600) // 60
+            seconds = seconds % 60
+            remaining_times.append(
+                f"{chain_name}; {chain_datetime.strftime('%d/%m/%Y %H:%M:%S')}; {days} dias, {hours} horas, {minutes} minutos, {seconds} segundos"
             )
 
     if remaining_times:
